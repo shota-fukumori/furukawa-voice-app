@@ -28,7 +28,6 @@
 
     .container { padding: 16px; max-width: 480px; margin: 0 auto; }
 
-    /* 記録者名入力 */
     .name-section {
       background: #fff;
       border-radius: 12px;
@@ -47,7 +46,6 @@
     }
     .name-input:focus { border-color: #1a73e8; }
 
-    /* カテゴリ選択 */
     .category-section {
       background: #fff;
       border-radius: 12px;
@@ -72,7 +70,6 @@
       border-color: #1a73e8;
     }
 
-    /* 録音ボタン */
     .record-section {
       text-align: center;
       margin: 24px 0;
@@ -109,7 +106,6 @@
       50% { box-shadow: 0 0 0 16px rgba(217, 48, 37, 0); }
     }
 
-    /* テキスト表示・編集 */
     .text-section {
       background: #fff;
       border-radius: 12px;
@@ -134,7 +130,6 @@
     }
     .text-area:focus { border-color: #1a73e8; }
 
-    /* 送信ボタン */
     .submit-btn {
       width: 100%;
       padding: 14px;
@@ -154,10 +149,7 @@
     }
     .submit-btn:not(:disabled):active { background: #1557b0; }
 
-    /* 履歴 */
-    .history-section {
-      margin-top: 24px;
-    }
+    .history-section { margin-top: 24px; }
     .history-title {
       font-size: 15px;
       font-weight: 600;
@@ -187,7 +179,6 @@
     }
     .memo-text { font-size: 14px; line-height: 1.5; }
 
-    /* トースト */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -207,7 +198,6 @@
       transform: translateX(-50%) translateY(0);
     }
 
-    /* ブラウザ非対応 */
     .unsupported {
       text-align: center;
       padding: 40px 20px;
@@ -221,18 +211,16 @@
 <div class="header">ボイスメモ</div>
 
 <div class="unsupported" id="unsupported">
-  <p>このブラウザは音声認識に対応していません。</p>
-  <p style="margin-top:8px; font-size:13px; color:#666;">Chrome をお使いください。</p>
+  <p>このブラウザは録音に対応していません。</p>
+  <p style="margin-top:8px; font-size:13px; color:#666;">Chrome または Safari をお使いください。</p>
 </div>
 
 <div class="container" id="app">
-  <!-- 記録者名 -->
   <div class="name-section">
     <label>記録者名</label>
     <input type="text" class="name-input" id="nameInput" placeholder="名前を入力" autocomplete="name">
   </div>
 
-  <!-- カテゴリ -->
   <div class="category-section">
     <label>カテゴリ</label>
     <div class="category-chips" id="categoryChips">
@@ -244,7 +232,6 @@
     </div>
   </div>
 
-  <!-- 録音ボタン -->
   <div class="record-section">
     <button class="record-btn" id="recordBtn">
       <span class="mic-icon">&#x1F3A4;</span>
@@ -252,14 +239,12 @@
     <div class="record-status" id="recordStatus">タップして録音開始</div>
   </div>
 
-  <!-- テキスト表示 -->
   <div class="text-section" id="textSection">
     <label>認識テキスト（編集可）</label>
     <textarea class="text-area" id="textArea" placeholder="音声認識結果がここに表示されます"></textarea>
     <button class="submit-btn" id="submitBtn" disabled>スプレッドシートに保存</button>
   </div>
 
-  <!-- 履歴 -->
   <div class="history-section" id="historySection">
     <div class="history-title">最近の記録</div>
     <div id="historyList"></div>
@@ -272,14 +257,19 @@
   // ========== GAS API URL ==========
   var GAS_URL = 'https://script.google.com/a/macros/kk-furukawa.co.jp/s/AKfycbxJyqzkRkpgx1BYZjQfyu9IO5uUrwfMnNXrA57lXbqvhNbnnH8llGVeJO-ChTBmHYE/exec';
 
-  // ========== 初期化 ==========
+  // ========== モード判定 ==========
   var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
+  var useWebSpeech = !!SpeechRecognition;
+  var hasMediaRecorder = typeof MediaRecorder !== 'undefined';
+
+  if (!useWebSpeech && !hasMediaRecorder) {
     document.getElementById('unsupported').style.display = 'block';
     document.getElementById('app').style.display = 'none';
   }
 
   var recognition = null;
+  var mediaRecorder = null;
+  var audioChunks = [];
   var isRecording = false;
   var fullText = '';
   var selectedCategory = '顧客訪問';
@@ -291,16 +281,14 @@
     localStorage.setItem('voicememo_name', this.value);
   });
 
-  // ========== 新しい認識インスタンスを作成 ==========
+  // ========== Web Speech API（Chrome用） ==========
   function createRecognition() {
     var rec = new SpeechRecognition();
     rec.lang = 'ja-JP';
     rec.continuous = true;
     rec.interimResults = true;
 
-    rec.onstart = function() {
-      console.log('認識開始');
-    };
+    rec.onstart = function() { console.log('認識開始'); };
 
     rec.onresult = function(event) {
       var interim = '';
@@ -313,26 +301,20 @@
           interim += transcript;
         }
       }
-      if (finalText) {
-        fullText += finalText;
-      }
+      if (finalText) fullText += finalText;
       document.getElementById('textArea').value = fullText + interim;
-      console.log('テキスト取得:', fullText + interim);
     };
 
     rec.onend = function() {
-      console.log('認識終了, isRecording:', isRecording);
       if (isRecording) {
         setTimeout(function() {
-          try { rec.start(); } catch(e) { console.error('再開エラー:', e); }
+          try { rec.start(); } catch(e) {}
         }, 500);
       }
     };
 
     rec.onerror = function(event) {
-      console.error('認識エラー:', event.error);
-      if (event.error === 'no-speech') return;
-      if (event.error === 'aborted') return;
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
       if (event.error === 'not-allowed') {
         showToast('マイクの使用を許可してください');
         stopRecording();
@@ -356,11 +338,6 @@
   });
 
   function startRecording() {
-    // 前のインスタンスを破棄
-    if (recognition) {
-      try { recognition.abort(); } catch(e) {}
-    }
-
     fullText = '';
     document.getElementById('textArea').value = '';
     isRecording = true;
@@ -369,17 +346,33 @@
     recordStatus.classList.add('active');
     textSection.classList.add('visible');
 
-    // 新しいインスタンスで開始
-    recognition = createRecognition();
-    setTimeout(function() {
-      try {
-        recognition.start();
-      } catch(e) {
-        console.error('開始エラー:', e);
-        showToast('音声認識を開始できませんでした');
-        stopRecording();
-      }
-    }, 300);
+    if (useWebSpeech) {
+      // Chrome: リアルタイム文字起こし
+      if (recognition) { try { recognition.abort(); } catch(e) {} }
+      recognition = createRecognition();
+      setTimeout(function() {
+        try { recognition.start(); } catch(e) {
+          showToast('音声認識を開始できませんでした');
+          stopRecording();
+        }
+      }, 300);
+    } else {
+      // iPhone: MediaRecorderで録音 → 後でGeminiで文字起こし
+      audioChunks = [];
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(function(stream) {
+          mediaRecorder = new MediaRecorder(stream);
+          mediaRecorder.ondataavailable = function(e) {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+          mediaRecorder.start();
+          document.getElementById('textArea').placeholder = '録音中...停止後にAIが文字起こしします';
+        })
+        .catch(function(err) {
+          showToast('マイクの使用を許可してください');
+          stopRecording();
+        });
+    }
   }
 
   function stopRecording() {
@@ -387,12 +380,71 @@
     recordBtn.classList.remove('recording');
     recordStatus.textContent = 'タップして録音開始';
     recordStatus.classList.remove('active');
-    if (recognition) {
-      try { recognition.stop(); } catch(e) {}
-    }
 
-    var text = document.getElementById('textArea').value.trim();
-    document.getElementById('submitBtn').disabled = !text;
+    if (useWebSpeech) {
+      if (recognition) { try { recognition.stop(); } catch(e) {} }
+      var text = document.getElementById('textArea').value.trim();
+      document.getElementById('submitBtn').disabled = !text;
+    } else {
+      // iPhone: 録音停止 → Geminiで文字起こし
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.onstop = function() {
+          // ストリームを停止
+          mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
+
+          var blob = new Blob(audioChunks, { type: 'audio/webm' });
+          var reader = new FileReader();
+          reader.onloadend = function() {
+            var base64 = reader.result.split(',')[1];
+            transcribeWithGemini(base64, blob.type);
+          };
+          reader.readAsDataURL(blob);
+        };
+        mediaRecorder.stop();
+        recordStatus.textContent = 'AIが文字起こし中...';
+        recordStatus.classList.add('active');
+      }
+    }
+  }
+
+  // ========== Gemini文字起こし（iPhone用） ==========
+  function transcribeWithGemini(base64Audio, mimeType) {
+    document.getElementById('textArea').value = '';
+    document.getElementById('textArea').placeholder = 'AIが文字起こし中...しばらくお待ちください';
+
+    var payload = {
+      action: 'transcribe',
+      data: {
+        audio: base64Audio,
+        mimeType: mimeType
+      }
+    };
+
+    fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload),
+      redirect: 'follow'
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(result) {
+      recordStatus.textContent = 'タップして録音開始';
+      recordStatus.classList.remove('active');
+      if (result.success) {
+        document.getElementById('textArea').value = result.text;
+        document.getElementById('textArea').placeholder = '音声認識結果がここに表示されます';
+        document.getElementById('submitBtn').disabled = false;
+        fullText = result.text;
+      } else {
+        showToast('文字起こしエラー: ' + result.error);
+        document.getElementById('textArea').placeholder = '音声認識結果がここに表示されます';
+      }
+    })
+    .catch(function(err) {
+      recordStatus.textContent = 'タップして録音開始';
+      recordStatus.classList.remove('active');
+      showToast('エラー: ' + err.message);
+    });
   }
 
   // ========== カテゴリ選択 ==========
@@ -483,7 +535,6 @@
     return div.innerHTML;
   }
 
-  // ========== トースト ==========
   function showToast(msg) {
     var toast = document.getElementById('toast');
     toast.textContent = msg;
@@ -491,7 +542,6 @@
     setTimeout(function() { toast.classList.remove('show'); }, 2500);
   }
 
-  // 起動時に履歴読み込み
   loadHistory();
 </script>
 
