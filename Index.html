@@ -361,11 +361,21 @@
       audioChunks = [];
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then(function(stream) {
-          mediaRecorder = new MediaRecorder(stream);
+          // iOSはwebm非対応なので、対応形式を自動選択
+          var mimeType = '';
+          if (MediaRecorder.isTypeSupported('audio/webm')) {
+            mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+            mimeType = 'audio/aac';
+          }
+          var options = mimeType ? { mimeType: mimeType } : {};
+          mediaRecorder = new MediaRecorder(stream, options);
           mediaRecorder.ondataavailable = function(e) {
             if (e.data.size > 0) audioChunks.push(e.data);
           };
-          mediaRecorder.start();
+          mediaRecorder.start(1000); // 1秒ごとにデータ取得
           document.getElementById('textArea').placeholder = '録音中...停止後にAIが文字起こしします';
         })
         .catch(function(err) {
@@ -392,7 +402,8 @@
           // ストリームを停止
           mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
 
-          var blob = new Blob(audioChunks, { type: 'audio/webm' });
+          var blobType = mediaRecorder.mimeType || 'audio/mp4';
+          var blob = new Blob(audioChunks, { type: blobType });
           var reader = new FileReader();
           reader.onloadend = function() {
             var base64 = reader.result.split(',')[1];
