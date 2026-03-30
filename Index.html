@@ -221,11 +221,17 @@
     <input type="text" class="name-input" id="nameInput" placeholder="名前を入力" autocomplete="name">
   </div>
 
+  <div class="name-section">
+    <label>会員コード</label>
+    <input type="text" class="name-input" id="memberCodeInput" placeholder="会員コードを入力（任意）" inputmode="numeric">
+  </div>
+
   <div class="category-section">
     <label>カテゴリ</label>
     <div class="category-chips" id="categoryChips">
       <div class="chip active" data-value="顧客訪問">顧客訪問</div>
       <div class="chip" data-value="配送報告">配送報告</div>
+      <div class="chip" data-value="問い合わせ">問い合わせ</div>
       <div class="chip" data-value="クレーム">クレーム</div>
       <div class="chip" data-value="契約">契約</div>
       <div class="chip" data-value="その他">その他</div>
@@ -481,6 +487,7 @@
       action: 'save',
       data: {
         name: nameInput.value.trim(),
+        memberCode: document.getElementById('memberCodeInput').value.trim(),
         text: text,
         category: selectedCategory
       }
@@ -530,7 +537,7 @@
       list.innerHTML = memos.map(function(m) {
         return '<div class="memo-card">' +
           '<div class="memo-meta">' +
-            '<span>' + escapeHtml(m.name) + ' - ' + m.date + '</span>' +
+            '<span>' + escapeHtml(m.name) + (m.memberCode ? ' [' + escapeHtml(m.memberCode) + ']' : '') + ' - ' + m.date + '</span>' +
             '<span class="memo-category">' + escapeHtml(m.category) + '</span>' +
           '</div>' +
           '<div class="memo-text">' + escapeHtml(m.text).substring(0, 150) +
