@@ -264,12 +264,10 @@
   var GAS_URL = 'https://script.google.com/a/macros/kk-furukawa.co.jp/s/AKfycbxJyqzkRkpgx1BYZjQfyu9IO5uUrwfMnNXrA57lXbqvhNbnnH8llGVeJO-ChTBmHYE/exec';
 
   // ========== モード判定 ==========
-  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var useWebSpeech = !!SpeechRecognition && !isIOS; // iOSはSpeechRecognitionがあっても動かない
+  // 全プラットフォームでMediaRecorder + Gemini文字起こしを使用（安定性重視）
   var hasMediaRecorder = typeof MediaRecorder !== 'undefined';
 
-  if (!useWebSpeech && !hasMediaRecorder) {
+  if (!hasMediaRecorder) {
     document.getElementById('unsupported').style.display = 'block';
     document.getElementById('app').style.display = 'none';
   }
@@ -353,43 +351,30 @@
     recordStatus.classList.add('active');
     textSection.classList.add('visible');
 
-    if (useWebSpeech) {
-      // Chrome: リアルタイム文字起こし
-      if (recognition) { try { recognition.abort(); } catch(e) {} }
-      recognition = createRecognition();
-      setTimeout(function() {
-        try { recognition.start(); } catch(e) {
-          showToast('音声認識を開始できませんでした');
-          stopRecording();
+    // MediaRecorderで録音 → 停止後にGeminiで文字起こし
+    audioChunks = [];
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function(stream) {
+        var mimeType = '';
+        if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+          mimeType = 'audio/aac';
         }
-      }, 300);
-    } else {
-      // iPhone: MediaRecorderで録音 → 後でGeminiで文字起こし
-      audioChunks = [];
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(function(stream) {
-          // iOSはwebm非対応なので、対応形式を自動選択
-          var mimeType = '';
-          if (MediaRecorder.isTypeSupported('audio/webm')) {
-            mimeType = 'audio/webm';
-          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-            mimeType = 'audio/mp4';
-          } else if (MediaRecorder.isTypeSupported('audio/aac')) {
-            mimeType = 'audio/aac';
-          }
-          var options = mimeType ? { mimeType: mimeType } : {};
-          mediaRecorder = new MediaRecorder(stream, options);
-          mediaRecorder.ondataavailable = function(e) {
-            if (e.data.size > 0) audioChunks.push(e.data);
-          };
-          mediaRecorder.start(1000); // 1秒ごとにデータ取得
-          document.getElementById('textArea').placeholder = '録音中...停止後にAIが文字起こしします';
-        })
-        .catch(function(err) {
-          showToast('マイクの使用を許可してください');
-          stopRecording();
-        });
-    }
+        var options = mimeType ? { mimeType: mimeType } : {};
+        mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder.ondataavailable = function(e) {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        mediaRecorder.start(1000);
+        document.getElementById('textArea').placeholder = '録音中...停止後にAIが文字起こしします';
+      })
+      .catch(function(err) {
+        showToast('マイクの使用を許可してください');
+        stopRecording();
+      });
   }
 
   function stopRecording() {
@@ -398,30 +383,23 @@
     recordStatus.textContent = 'タップして録音開始';
     recordStatus.classList.remove('active');
 
-    if (useWebSpeech) {
-      if (recognition) { try { recognition.stop(); } catch(e) {} }
-      var text = document.getElementById('textArea').value.trim();
-      document.getElementById('submitBtn').disabled = !text;
-    } else {
-      // iPhone: 録音停止 → Geminiで文字起こし
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.onstop = function() {
-          // ストリームを停止
-          mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
+    // 録音停止 → Geminiで文字起こし
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.onstop = function() {
+        mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
 
-          var blobType = mediaRecorder.mimeType || 'audio/mp4';
-          var blob = new Blob(audioChunks, { type: blobType });
-          var reader = new FileReader();
-          reader.onloadend = function() {
-            var base64 = reader.result.split(',')[1];
-            transcribeWithGemini(base64, blob.type);
-          };
-          reader.readAsDataURL(blob);
+        var blobType = mediaRecorder.mimeType || 'audio/mp4';
+        var blob = new Blob(audioChunks, { type: blobType });
+        var reader = new FileReader();
+        reader.onloadend = function() {
+          var base64 = reader.result.split(',')[1];
+          transcribeWithGemini(base64, blob.type);
         };
-        mediaRecorder.stop();
-        recordStatus.textContent = 'AIが文字起こし中...';
-        recordStatus.classList.add('active');
-      }
+        reader.readAsDataURL(blob);
+      };
+      mediaRecorder.stop();
+      recordStatus.textContent = 'AIが文字起こし中...';
+      recordStatus.classList.add('active');
     }
   }
 
